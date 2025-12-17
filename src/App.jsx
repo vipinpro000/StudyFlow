@@ -1,22 +1,51 @@
 import React, { useState, useEffect } from 'react'
 import './App.css'
 
-const App = () => {
-  const [currentPage, setCurrentPage] = useState('dashboard')
-  const [tasks, setTasks] = useState([
-    { id: 1, subject: 'Mathematics', task: 'Complete Chapter 5', deadline: '2024-01-20', status: 'pending' },
-    { id: 2, subject: 'Physics', task: 'Finish Project', deadline: '2024-01-18', status: 'in-progress' }
-  ])
+// Storage utility
+const storageManager = {
+  getTasks: () => JSON.parse(localStorage.getItem('tasks') || '[]'),
+  setTasks: (tasks) => localStorage.setItem('tasks', JSON.stringify(tasks)),
+  getStats: () => JSON.parse(localStorage.getItem('stats') || '{"totalHours": 0, "sessionsCompleted": 0, "longestSession": 0}'),
+  setStats: (stats) => localStorage.setItem('stats', JSON.stringify(stats)),
+}
+
+// Pomodoro Timer Component
+const PomodoroTimer = () => {
   const [timeLeft, setTimeLeft] = useState(1500)
   const [isRunning, setIsRunning] = useState(false)
+  const [sessionType, setSessionType] = useState('work')
 
   useEffect(() => {
-    let interval
-    if (isRunning && timeLeft > 0) {
-      interval = setInterval(() => setTimeLeft(prev => prev - 1), 1000)
-    }
-    return () => clearInterval(interval)
+    if (!isRunning || timeLeft === 0) return
+
+    const timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000)
+    return () => clearTimeout(timer)
   }, [isRunning, timeLeft])
+
+  useEffect(() => {
+    if (timeLeft === 0) {
+      setIsRunning(false)
+      alert(`${sessionType === 'work' ? 'Work' : 'Break'} session complete!`)
+      const stats = storageManager.getStats()
+      stats.sessionsCompleted += 1
+      stats.totalHours += sessionType === 'work' ? 0.25 : 0.05
+      storageManager.setStats(stats)
+      
+      if (sessionType === 'work') {
+        setSessionType('break')
+        setTimeLeft(300)
+      } else {
+        setSessionType('work')
+        setTimeLeft(1500)
+      }
+    }
+  }, [timeLeft, sessionType])
+
+  const toggleTimer = () => setIsRunning(!isRunning)
+  const resetTimer = () => {
+    setIsRunning(false)
+    setTimeLeft(sessionType === 'work' ? 1500 : 300)
+  }
 
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60)
@@ -24,155 +53,312 @@ const App = () => {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
 
+  return (
+    <div className="timer-container">
+      <h2 className="card-title">{sessionType === 'work' ? 'Work Session' : 'Break Time'}</h2>
+      <div className="timer-display">{formatTime(timeLeft)}</div>
+      <div className="timer-controls">
+        <button className="btn btn-primary" onClick={toggleTimer}>
+          {isRunning ? 'Pause' : 'Start'}
+        </button>
+        <button className="btn btn-secondary" onClick={resetTimer}>
+          Reset
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// Task Manager Component
+const TaskManager = () => {
+  const [tasks, setTasks] = useState([])
+  const [newTask, setNewTask] = useState(''))
+  const [selectedSubject, setSelectedSubject] = useState('Mathematics')
+
+  useEffect(() => {
+    setTasks(storageManager.getTasks())
+  }, [])
+
+  useEffect(() => {
+    storageManager.setTasks(tasks)
+  }, [tasks])
+
   const addTask = () => {
-    const newTask = {
+    if (!newTask.trim()) return
+    const task = {
       id: Date.now(),
-      subject: 'New Subject',
-      task: 'New Task',
+      subject: selectedSubject,
+      task: newTask,
+      completed: false,
       deadline: new Date().toISOString().split('T')[0],
-      status: 'pending'
+      status: 'in-progress'
     }
-    setTasks([...tasks, newTask])
+    setTasks([...tasks, task])
+    setNewTask('')
   }
+
+  const toggleTask = (id) => {
+    setTasks(tasks.map(t => t.id === id ? {...t, completed: !t.completed} : t))
+  }
+
+  const deleteTask = (id) => {
+    setTasks(tasks.filter(t => t.id !== id))
+  }
+
+  return (
+    <div className="card">
+      <h2 className="card-title">📋 Task Manager</h2>
+      <div className="form-group">
+        <label className="form-label">Subject:</label>
+        <select 
+          className="form-select" 
+          value={selectedSubject} 
+          onChange={(e) => setSelectedSubject(e.target.value)}
+        >
+          <option>Mathematics</option>
+          <option>Physics</option>
+          <option>Chemistry</option>
+          <option>Biology</option>
+          <option>English</option>
+          <option>History</option>
+        </select>
+      </div>
+      <div className="form-group" style={{flexDirection: 'row', gap: '0.5rem'}}>
+        <input
+          className="form-input"
+          type="text"
+          placeholder="Add a new task..."
+          value={newTask}
+          onChange={(e) => setNewTask(e.target.value)}
+          onKeyPress={(e) => e.key === 'Enter' && addTask()}
+          style={{flex: 1}}
+        />
+        <button className="btn btn-primary btn-small" onClick={addTask}>Add</button>
+      </div>
+      <div>
+        {tasks.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-icon">📭</div>
+            <p className="empty-state-title">No tasks yet</p>
+            <p className="empty-state-text">Add a task to get started!</p>
+          </div>
+        ) : (
+          tasks.map(task => (
+            <div key={task.id} className={`task-item ${task.completed ? 'completed' : ''}`}>
+              <div className="task-info">
+                <div className="task-title">{task.task}</div>
+                <div className="task-meta">{task.subject} • {task.deadline}</div>
+              </div>
+              <div className="task-actions">
+                <button 
+                  className="task-action-btn"
+                  onClick={() => toggleTask(task.id)}
+                  title="Toggle completion"
+                >
+                  {task.completed ? '✅' : '⭕'}
+                </button>
+                <button 
+                  className="task-action-btn"
+                  onClick={() => deleteTask(task.id)}
+                  title="Delete task"
+                >
+                  🗑️
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Stats Component
+const StatsPanel = () => {
+  const [stats, setStats] = useState({})
+
+  useEffect(() => {
+    setStats(storageManager.getStats())
+  }, [])
+
+  return (
+    <div className="card">
+      <h2 className="card-title">📊 Study Statistics</h2>
+      <div className="stats-grid">
+        <div className="stat-box">
+          <div className="stat-value">{stats.sessionsCompleted || 0}</div>
+          <div className="stat-label">Sessions</div>
+        </div>
+        <div className="stat-box">
+          <div className="stat-value">{(stats.totalHours || 0).toFixed(1)}h</div>
+          <div className="stat-label">Total Hours</div>
+        </div>
+        <div className="stat-box">
+          <div className="stat-value">{stats.longestSession || 0}m</div>
+          <div className="stat-label">Longest Session</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Analytics Page Component
+const AnalyticsPage = () => {
+  const stats = storageManager.getStats()
+  const tasks = storageManager.getTasks()
+  const completedTasks = tasks.filter(t => t.completed).length
+  const subjectBreakdown = tasks.reduce((acc, task) => {
+    acc[task.subject] = (acc[task.subject] || 0) + 1
+    return acc
+  }, {})
+
+  return (
+    <div className="page active">
+      <h1 style={{marginBottom: '2rem', color: 'white'}}>📈 Analytics Dashboard</h1>
+      <div className="dashboard-grid">
+        <div className="card">
+          <h2 className="card-title">Overall Progress</h2>
+          <div className="stats-grid">
+            <div className="stat-box">
+              <div className="stat-value">{completedTasks}/{tasks.length}</div>
+              <div className="stat-label">Tasks Completed</div>
+            </div>
+            <div className="stat-box">
+              <div className="stat-value">{stats.sessionsCompleted || 0}</div>
+              <div className="stat-label">Study Sessions</div>
+            </div>
+            <div className="stat-box">
+              <div className="stat-value">{(stats.totalHours || 0).toFixed(1)}h</div>
+              <div className="stat-label">Hours Studied</div>
+            </div>
+          </div>
+        </div>
+        <div className="card">
+          <h2 className="card-title">Subject Breakdown</h2>
+          {Object.entries(subjectBreakdown).map(([subject, count]) => (
+            <div key={subject} style={{marginBottom: '1rem'}}>
+              <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem'}}>
+                <span className="task-title">{subject}</span>
+                <span>{count} tasks</span>
+              </div>
+              <div style={{
+                height: '8px',
+                background: '#e0e0e0',
+                borderRadius: '4px',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  height: '100%',
+                  width: `${(count / tasks.length * 100) || 0}%`,
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+                }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Settings Page Component
+const SettingsPage = () => {
+  const [theme, setTheme] = useState('dark')
+  const [notifications, setNotifications] = useState(true)
+
+  return (
+    <div className="page active">
+      <h1 style={{marginBottom: '2rem', color: 'white'}}>⚙️ Settings</h1>
+      <div className="dashboard-grid">
+        <div className="card">
+          <h2 className="card-title">Preferences</h2>
+          <div className="form-group">
+            <label className="form-label">Theme:</label>
+            <select 
+              className="form-select"
+              value={theme}
+              onChange={(e) => setTheme(e.target.value)}
+            >
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+            </select>
+          </div>
+          <div className="form-group" style={{flexDirection: 'row', alignItems: 'center'}}>
+            <input
+              type="checkbox"
+              id="notifications"
+              checked={notifications}
+              onChange={(e) => setNotifications(e.target.checked)}
+              style={{width: 'auto', marginRight: '0.5rem'}}
+            />
+            <label htmlFor="notifications" className="form-label">Enable Notifications</label>
+          </div>
+          <button className="btn btn-primary" onClick={() => alert('Settings saved!')}>Save Settings</button>
+        </div>
+        <div className="card">
+          <h2 className="card-title">About StudyFlow</h2>
+          <p style={{marginBottom: '1rem'}}>StudyFlow is a student productivity & study tracker web app built with React, Firebase, and Vite.</p>
+          <p style={{marginBottom: '1rem'}}>Version: 1.0.0</p>
+          <p style={{color: '#666'}}>© 2024 StudyFlow. All rights reserved.</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Main App Component
+const App = () => {
+  const [currentPage, setCurrentPage] = useState('dashboard')
 
   return (
     <div className="app">
       <nav className="navbar">
-        <div className="nav-brand">📚 StudyFlow</div>
-        <div className="nav-menu">
-          <button 
-            className={`nav-btn ${currentPage === 'dashboard' ? 'active' : ''}`}
-            onClick={() => setCurrentPage('dashboard')}
-          >
-            Dashboard
-          </button>
-          <button 
-            className={`nav-btn ${currentPage === 'planner' ? 'active' : ''}`}
-            onClick={() => setCurrentPage('planner')}
-          >
-            Planner
-          </button>
-          <button 
-            className={`nav-btn ${currentPage === 'tracker' ? 'active' : ''}`}
-            onClick={() => setCurrentPage('tracker')}
-          >
-            Tracker
-          </button>
-          <button 
-            className={`nav-btn ${currentPage === 'pomodoro' ? 'active' : ''}`}
-            onClick={() => setCurrentPage('pomodoro')}
-          >
-            Timer
-          </button>
-        </div>
+        <div className="navbar-brand">📚 StudyFlow</div>
+        <ul className="nav-menu">
+          <li>
+            <button 
+              className="nav-link"
+              onClick={() => setCurrentPage('dashboard')}
+              style={{opacity: currentPage === 'dashboard' ? 1 : 0.7}}
+            >
+              Dashboard
+            </button>
+          </li>
+          <li>
+            <button 
+              className="nav-link"
+              onClick={() => setCurrentPage('analytics')}
+              style={{opacity: currentPage === 'analytics' ? 1 : 0.7}}
+            >
+              Analytics
+            </button>
+          </li>
+          <li>
+            <button 
+              className="nav-link"
+              onClick={() => setCurrentPage('settings')}
+              style={{opacity: currentPage === 'settings' ? 1 : 0.7}}
+            >
+              Settings
+            </button>
+          </li>
+        </ul>
       </nav>
 
       <div className="container">
         {currentPage === 'dashboard' && (
-          <div className="page dashboard">
-            <h1>Welcome to StudyFlow!</h1>
-            <div className="stats-grid">
-              <div className="stat-card">
-                <div className="stat-number">{tasks.length}</div>
-                <div className="stat-label">Total Tasks</div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-number">{tasks.filter(t => t.status === 'completed').length}</div>
-                <div className="stat-label">Completed</div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-number">{tasks.filter(t => t.status === 'pending').length}</div>
-                <div className="stat-label">Pending</div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-number">5</div>
-                <div className="stat-label">Study Hours</div>
-              </div>
+          <div className="page active">
+            <h1 style={{marginBottom: '2rem', color: 'white'}}>Welcome to StudyFlow 🎓</h1>
+            <div className="dashboard-grid">
+              <PomodoroTimer />
+              <StatsPanel />
             </div>
-            <div className="recent-section">
-              <h2>Recent Tasks</h2>
-              <ul className="task-list">
-                {tasks.slice(0, 3).map(task => (
-                  <li key={task.id} className={`task-item ${task.status}`}>
-                    <span className="task-name">{task.task}</span>
-                    <span className="task-subject">{task.subject}</span>
-                    <span className="task-deadline">{task.deadline}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <TaskManager />
           </div>
         )}
-
-        {currentPage === 'planner' && (
-          <div className="page planner">
-            <h1>Study Planner</h1>
-            <div className="planner-content">
-              <button className="add-btn" onClick={addTask}>+ Add Task</button>
-              <div className="tasks-container">
-                {tasks.map(task => (
-                  <div key={task.id} className="task-card">
-                    <h3>{task.subject}</h3>
-                    <p>{task.task}</p>
-                    <div className="task-meta">
-                      <span className="deadline">📅 {task.deadline}</span>
-                      <span className={`status ${task.status}`}>{task.status}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {currentPage === 'tracker' && (
-          <div className="page tracker">
-            <h1>Subject Tracker</h1>
-            <div className="tracker-content">
-              {['Mathematics', 'Physics', 'Chemistry', 'English', 'Biology'].map((subject, idx) => (
-                <div key={idx} className="tracker-item">
-                  <div className="subject-name">{subject}</div>
-                  <div className="progress-bar">
-                    <div className="progress" style={{width: `${(idx + 1) * 20}%`}}></div>
-                  </div>
-                  <div className="progress-text">{(idx + 1) * 20}% Complete</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {currentPage === 'pomodoro' && (
-          <div className="page pomodoro">
-            <h1>Pomodoro Timer</h1>
-            <div className="timer-container">
-              <div className="timer-display">{formatTime(timeLeft)}</div>
-              <div className="timer-buttons">
-                <button 
-                  className="btn-primary" 
-                  onClick={() => setIsRunning(!isRunning)}
-                >
-                  {isRunning ? 'Pause' : 'Start'}
-                </button>
-                <button 
-                  className="btn-secondary" 
-                  onClick={() => setTimeLeft(1500)}
-                >
-                  Reset
-                </button>
-              </div>
-              <div className="timer-info">
-                <p>📊 Focus Session: 25 minutes</p>
-                <p>✅ Helps you study with focused intervals</p>
-              </div>
-            </div>
-          </div>
-        )}
+        {currentPage === 'analytics' && <AnalyticsPage />}
+        {currentPage === 'settings' && <SettingsPage />}
       </div>
-
-      <footer className="footer">
-        <p>StudyFlow © 2024 | Open-Source Student Productivity App</p>
-      </footer>
     </div>
   )
 }
